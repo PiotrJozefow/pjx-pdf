@@ -1,0 +1,11 @@
+node_modules/
+.build-*/
+.DS_Store
+*.pdf
+*.html
+
+# The examples are the documentation: their sources and their rendered PDFs are committed,
+# but the intermediate .html that `--html` leaves behind is not.
+!examples/*.html
+!examples/*.pdf
+examples/markdown.html

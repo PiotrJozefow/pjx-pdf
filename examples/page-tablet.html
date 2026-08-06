@@ -1,0 +1,558 @@
+<!doctype html>
+<!--
+  HTML-mode example — the same design language in a narrow, single-column layout.
+
+  Render it at tablet width, where each captured slice lands on portrait A4:
+
+      pjx-pdf examples/page-tablet.html --view tablet
+
+  Worth comparing against page-desktop.html: same product, same palette, different
+  breakpoint and therefore a different page shape. Nothing is fetched over the network.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meridian — cycle counting on the floor</title>
+    <style>
+      :root {
+        --ink: #0f1115;
+        --ink-soft: #4a5160;
+        --line: #e3e6ec;
+        --paper: #ffffff;
+        --wash: #f6f7f9;
+        --accent: #2f4bff;
+        --accent-soft: #edf0ff;
+        --warn-soft: #fff4e5;
+        --warn: #9a5b00;
+        --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+          sans-serif;
+        --mono: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 17px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .wrap {
+        margin: 0 auto;
+        max-width: 720px;
+        padding: 0 40px;
+      }
+
+      /* Sticky: captured where it sits at scroll 0, so it prints on page 1 only. */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(12px);
+      }
+
+      nav {
+        display: flex;
+        align-items: center;
+        height: 64px;
+      }
+
+      .mark {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 17px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+
+      .mark span {
+        display: grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        background: var(--ink);
+        color: #fff;
+        font-size: 14px;
+      }
+
+      nav .spacer {
+        flex: 1;
+      }
+
+      .btn {
+        display: inline-block;
+        border-radius: 9px;
+        padding: 10px 18px;
+        font-size: 15px;
+        font-weight: 550;
+        text-decoration: none;
+      }
+
+      .btn-solid {
+        background: var(--ink);
+        color: #fff;
+      }
+
+      .btn-accent {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .btn-ghost {
+        border: 1px solid var(--line);
+        color: var(--ink);
+      }
+
+      .btn-block {
+        display: block;
+        text-align: center;
+      }
+
+      /* ---------- hero ---------- */
+
+      .hero {
+        padding: 64px 0 52px;
+      }
+
+      .eyebrow {
+        display: inline-block;
+        margin-bottom: 18px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        padding: 6px 13px;
+        color: var(--accent);
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+
+      h1 {
+        font-size: 40px;
+        font-weight: 680;
+        letter-spacing: -0.032em;
+        line-height: 1.08;
+      }
+
+      .lede {
+        margin-top: 18px;
+        color: var(--ink-soft);
+        font-size: 18px;
+      }
+
+      .cta {
+        display: grid;
+        gap: 10px;
+        margin-top: 28px;
+      }
+
+      /* ---------- device mock ---------- */
+
+      .device {
+        margin: 40px 0 0;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--wash);
+        box-shadow: 0 20px 50px -32px rgba(15, 17, 21, 0.45);
+        overflow: hidden;
+      }
+
+      .device-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        padding: 13px 18px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--ink-soft);
+      }
+
+      .scan {
+        padding: 20px 18px 22px;
+      }
+
+      .scan-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        border-radius: 12px;
+        background: #fff;
+        border: 1px solid var(--line);
+        padding: 14px 16px;
+      }
+
+      .scan-row + .scan-row {
+        margin-top: 10px;
+      }
+
+      .sku {
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .scan-row .meta {
+        flex: 1;
+        color: var(--ink-soft);
+        font-size: 13.5px;
+      }
+
+      .pill {
+        border-radius: 999px;
+        padding: 4px 11px;
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+
+      .pill-ok {
+        background: #e6f5ec;
+        color: #1d7a4c;
+      }
+
+      .pill-warn {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+
+      /* ---------- sections ---------- */
+
+      section {
+        padding: 56px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      h2 {
+        font-size: 27px;
+        font-weight: 660;
+        letter-spacing: -0.025em;
+        line-height: 1.18;
+      }
+
+      .sub {
+        margin-top: 12px;
+        color: var(--ink-soft);
+      }
+
+      .feature {
+        display: flex;
+        gap: 18px;
+        padding: 26px 0;
+      }
+
+      .feature + .feature {
+        border-top: 1px solid var(--line);
+      }
+
+      .feature .ico {
+        flex: none;
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 18px;
+      }
+
+      .feature h3 {
+        font-size: 18px;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+      }
+
+      .feature p {
+        margin-top: 6px;
+        color: var(--ink-soft);
+        font-size: 15.5px;
+      }
+
+      .quote {
+        margin-top: 34px;
+        border-left: 3px solid var(--ink);
+        padding: 4px 0 4px 22px;
+      }
+
+      .quote p {
+        font-size: 20px;
+        letter-spacing: -0.015em;
+      }
+
+      .quote footer {
+        margin-top: 14px;
+        color: var(--ink-soft);
+        font-size: 14.5px;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 26px;
+        border-collapse: collapse;
+        font-size: 15.5px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 14px 4px;
+        text-align: left;
+      }
+
+      th {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+      }
+
+      td:last-child {
+        text-align: right;
+        font-family: var(--mono);
+        font-size: 14px;
+      }
+
+      .faq {
+        margin-top: 26px;
+      }
+
+      .faq div {
+        padding: 20px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .faq h3 {
+        font-size: 16.5px;
+        font-weight: 620;
+      }
+
+      .faq p {
+        margin-top: 7px;
+        color: var(--ink-soft);
+        font-size: 15.5px;
+      }
+
+      .closer {
+        margin: 8px 0 56px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, #2f4bff 0%, #1a2bb0 100%);
+        color: #fff;
+        padding: 44px 36px;
+        text-align: center;
+      }
+
+      .closer h2 {
+        font-size: 28px;
+      }
+
+      .closer p {
+        margin-top: 12px;
+        color: #ccd3ff;
+        font-size: 16.5px;
+      }
+
+      .closer .btn {
+        margin-top: 26px;
+        background: #fff;
+        color: var(--accent);
+      }
+
+      .foot {
+        border-top: 1px solid var(--line);
+        padding: 30px 0 44px;
+        color: var(--ink-soft);
+        font-size: 14px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <div class="wrap">
+        <nav>
+          <div class="mark"><span>M</span> Meridian</div>
+          <div class="spacer"></div>
+          <a class="btn btn-solid" href="#">Start free</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <div class="hero">
+        <p class="eyebrow">Floor app</p>
+        <h1>Count the shelf without stopping the warehouse.</h1>
+        <p class="lede">
+          Cycle counts run alongside picking. Every discrepancy is recorded as its own event,
+          with an author, a reason and a timestamp you can replay later.
+        </p>
+        <div class="cta">
+          <a class="btn btn-accent btn-block" href="#">Start free trial</a>
+          <a class="btn btn-ghost btn-block" href="#">See a sample audit trail</a>
+        </div>
+
+        <div class="device">
+          <div class="device-bar"><span>Aisle 12 · bay C</span><span>6 of 14 counted</span></div>
+          <div class="scan">
+            <div class="scan-row">
+              <span class="sku">SKU-4471</span>
+              <span class="meta">expected 102 · counted 102</span>
+              <span class="pill pill-ok">match</span>
+            </div>
+            <div class="scan-row">
+              <span class="sku">SKU-1180</span>
+              <span class="meta">expected 48 · counted 46</span>
+              <span class="pill pill-warn">−2</span>
+            </div>
+            <div class="scan-row">
+              <span class="sku">SKU-0932</span>
+              <span class="meta">expected 15 · counted 15</span>
+              <span class="pill pill-ok">match</span>
+            </div>
+            <div class="scan-row">
+              <span class="sku">SKU-7710</span>
+              <span class="meta">expected 240 · counted 240</span>
+              <span class="pill pill-ok">match</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section>
+        <h2>Designed for one hand and a scanner</h2>
+        <p class="sub">
+          The floor app is the same ledger as the API — there is no separate stock number to
+          fall out of sync.
+        </p>
+
+        <div class="feature">
+          <div class="ico">◆</div>
+          <div>
+            <h3>Blind counts by default</h3>
+            <p>
+              The expected quantity is hidden until the count is submitted, so nobody is
+              nudged towards the number the system already believes.
+            </p>
+          </div>
+        </div>
+        <div class="feature">
+          <div class="ico">◇</div>
+          <div>
+            <h3>Works with no signal</h3>
+            <p>
+              Counts queue locally and reconcile in order when the device comes back. Cold
+              stores and basements were the design constraint.
+            </p>
+          </div>
+        </div>
+        <div class="feature">
+          <div class="ico">○</div>
+          <div>
+            <h3>Discrepancies need a reason</h3>
+            <p>
+              Damage, miscount, theft or mislocation. The reason travels with the event and
+              lands in the monthly shrinkage report on its own.
+            </p>
+          </div>
+        </div>
+
+        <div class="quote">
+          <p>
+            “We used to shut a bay for a morning to count it. Now it happens between picks and
+            nobody notices.”
+          </p>
+          <footer>Operations lead, three-site distributor</footer>
+        </div>
+      </section>
+
+      <section>
+        <h2>What a count costs you</h2>
+        <p class="sub">Measured across 21 sites over the last quarter.</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Measure</th>
+              <th>Before</th>
+              <th>With Meridian</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Bay downtime per count</td>
+              <td>3.5 h</td>
+              <td>0 h</td>
+            </tr>
+            <tr>
+              <td>Full-site count frequency</td>
+              <td>Quarterly</td>
+              <td>Continuous</td>
+            </tr>
+            <tr>
+              <td>Unexplained shrinkage</td>
+              <td>1.8%</td>
+              <td>0.3%</td>
+            </tr>
+            <tr>
+              <td>Time to trace a discrepancy</td>
+              <td>2 days</td>
+              <td>Instant</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Questions we get asked</h2>
+
+        <div class="faq">
+          <div>
+            <h3>Does it replace our WMS?</h3>
+            <p>
+              No. It owns the count and the ledger; your WMS keeps routing and labour. The
+              event stream is the seam between them.
+            </p>
+          </div>
+          <div>
+            <h3>What happens to historic adjustments?</h3>
+            <p>
+              They import as events dated when they happened, so opening balances replay
+              correctly rather than appearing as a lump on day one.
+            </p>
+          </div>
+          <div>
+            <h3>Which scanners are supported?</h3>
+            <p>
+              Anything that emits keyboard input, plus native integrations for the three
+              common Android rugged handhelds.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <div class="closer">
+        <h2>Try it on one aisle.</h2>
+        <p>Import a snapshot, count a single bay, and compare the trail against your WMS.</p>
+        <a class="btn" href="#">Start the trial</a>
+      </div>
+
+      <div class="foot">
+        <div class="mark" style="font-size: 15px">
+          <span style="width: 21px; height: 21px; font-size: 11px">M</span> Meridian
+        </div>
+        <p style="margin-top: 12px">Product · Docs · Status · Privacy</p>
+      </div>
+    </div>
+  </body>
+</html>
