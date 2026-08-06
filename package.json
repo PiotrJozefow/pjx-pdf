@@ -1,0 +1,47 @@
+{
+  "name": "pjx-pdf",
+  "version": "1.0.0",
+  "description": "Markdown or HTML to PDF via Puppeteer — Mermaid diagrams, Tailwind styling, and HTML captured as device-viewport pages",
+  "license": "MIT",
+  "author": "Piotr Józefów",
+  "keywords": [
+    "markdown",
+    "html",
+    "pdf",
+    "mermaid",
+    "tailwind",
+    "puppeteer",
+    "cli"
+  ],
+  "type": "module",
+  "bin": {
+    "pjx-pdf": "./pjx-pdf.mjs"
+  },
+  "scripts": {
+    "examples": "npm run example:markdown && npm run example:desktop && npm run example:tablet",
+    "example:markdown": "node pjx-pdf.mjs examples/markdown.md",
+    "example:desktop": "node pjx-pdf.mjs examples/page-desktop.html --view desktop",
+    "example:tablet": "node pjx-pdf.mjs examples/page-tablet.html --view tablet",
+    "install-global": "chmod +x pjx-pdf.mjs && npm install --global .",
+    "link": "chmod +x pjx-pdf.mjs && npm link",
+    "uninstall-global": "npm uninstall --global pjx-pdf"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "@tailwindcss/typography": "^0.5.19",
+    "@vscode/markdown-it-katex": "^1.1.2",
+    "gray-matter": "^4.0.3",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.47",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.2.0",
+    "markdown-it-attrs": "^4.3.1",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.13.0",
+    "puppeteer": "^24.43.1",
+    "tailwindcss": "^4.3.3"
+  }
+}

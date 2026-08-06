@@ -1,0 +1,358 @@
+/*
+ * House style — editorial black & white print theme.
+ *
+ * Ported from a custom print stylesheet used with the "Markdown PDF" VSCode extension,
+ * so output matches what that setup produced. Goals:
+ *   1. Book-like look using a warm Tiempos-style serif.
+ *   2. Reads correctly on a monochrome laser printer — never uses colour to convey
+ *      meaning; code, links, quotes and tables rely on borders, weight and grayscale.
+ *
+ * Element styling is written directly against the `.doc` wrapper rather than through
+ * `prose`, because @tailwindcss/typography's opinions fight this theme at every turn.
+ * The plugin is still loaded, so `prose` remains available opt-in on a per-element basis;
+ * Tailwind only emits it if something actually uses it.
+ *
+ * Tailwind utility classes work everywhere regardless — that is independent of this file.
+ */
+
+@theme {
+  --font-serif:
+    'Tiempos Text', 'Newsreader', 'Charter', 'Georgia', 'Times New Roman', serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+
+  --color-ink: #111111;
+  --color-ink-strong: #000000;
+  --color-muted: #444444;
+  --color-rule: #d0d0d0;
+  --color-rule-strong: #999999;
+  --color-surface: #f5f5f3;
+  --color-surface-line: #cfcfca;
+}
+
+@layer base {
+  /* Ensure backgrounds, borders and shading actually render when printed. */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    font-family: var(--font-serif);
+    color: var(--color-ink);
+    background: #ffffff;
+    font-size: 11.5pt;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'kern', 'liga', 'onum';
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Document body. Scoped to `.doc` so Tailwind utilities on inline HTML — and
+   anything inside `.not-prose` — are never overridden by these element rules.
+   --------------------------------------------------------------------------- */
+
+.doc :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--color-ink-strong);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.6em 0 0.6em;
+  break-after: avoid;
+}
+
+.doc h1 {
+  font-size: 2em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-top: 0;
+  padding-bottom: 0.25em;
+  border-bottom: 2px solid var(--color-ink-strong);
+}
+
+.doc h2 {
+  font-size: 1.5em;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.doc h3 {
+  font-size: 1.25em;
+}
+.doc h4 {
+  font-size: 1.08em;
+}
+.doc h5 {
+  font-size: 1em;
+}
+.doc h6 {
+  font-size: 0.9em;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.doc p {
+  margin: 0 0 0.85em;
+}
+
+.doc :is(strong, b) {
+  font-weight: 700;
+  color: var(--color-ink-strong);
+}
+
+.doc :is(em, i) {
+  font-style: italic;
+}
+
+/* Links print black with an underline rather than blue, to survive B&W output. */
+.doc a {
+  color: var(--color-ink-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 0.5px;
+}
+
+.doc :is(ul, ol) {
+  padding-left: 1.5em;
+  margin: 0 0 0.85em;
+  list-style-position: outside;
+}
+
+.doc ul {
+  list-style-type: disc;
+}
+.doc ol {
+  list-style-type: decimal;
+}
+.doc :is(ul, ol) :is(ul, ol) {
+  margin: 0.2em 0 0.4em;
+}
+.doc ul ul {
+  list-style-type: circle;
+}
+
+.doc li {
+  margin: 0.2em 0;
+}
+
+.doc li::marker {
+  color: var(--color-muted);
+}
+
+.doc blockquote {
+  margin: 1em 0;
+  padding: 0.4em 1.1em;
+  color: var(--color-muted);
+  font-style: italic;
+  border-left: 3px solid var(--color-ink-strong);
+}
+
+.doc blockquote p {
+  margin: 0.3em 0;
+}
+
+.doc hr {
+  border: none;
+  border-top: 1px solid var(--color-rule-strong);
+  margin: 2em 0;
+}
+
+/* ---------- Code ---------- */
+
+.doc :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  color: var(--color-ink-strong);
+  background: var(--color-surface);
+  border: 1px solid var(--color-surface-line);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+}
+
+.doc pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-surface-line);
+  border-radius: 4px;
+  padding: 0.9em 1.1em;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  break-inside: avoid;
+  margin: 1em 0;
+}
+
+.doc pre code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  color: var(--color-ink);
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* Syntax highlighting mapped to grayscale — legible and structured in monochrome. */
+.doc .hljs-comment,
+.doc .hljs-quote {
+  color: #6b6b6b;
+  font-style: italic;
+}
+
+.doc .hljs-keyword,
+.doc .hljs-selector-tag,
+.doc .hljs-built_in,
+.doc .hljs-name,
+.doc .hljs-meta {
+  color: var(--color-ink-strong);
+  font-weight: 700;
+}
+
+.doc .hljs-string,
+.doc .hljs-title,
+.doc .hljs-section,
+.doc .hljs-attribute,
+.doc .hljs-attr,
+.doc .hljs-symbol,
+.doc .hljs-literal,
+.doc .hljs-number,
+.doc .hljs-type,
+.doc .hljs-variable,
+.doc .hljs-template-variable,
+.doc .hljs-tag {
+  color: #2a2a2a;
+}
+
+.doc .hljs-emphasis {
+  font-style: italic;
+}
+.doc .hljs-strong {
+  font-weight: 700;
+}
+.doc .hljs-deletion {
+  text-decoration: line-through;
+}
+
+/* ---------- Tables ---------- */
+
+.doc table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.2em 0;
+  font-size: 0.95em;
+  break-inside: avoid;
+}
+
+.doc :is(th, td) {
+  border: 1px solid var(--color-rule-strong);
+  padding: 0.45em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.doc thead th {
+  background: #ebebe8;
+  color: var(--color-ink-strong);
+  font-weight: 700;
+  border-bottom: 2px solid var(--color-ink-strong);
+}
+
+.doc tbody tr:nth-child(even) td {
+  background: #f6f6f4;
+}
+
+/* ---------- Figures, images, diagrams ---------- */
+
+.doc img {
+  max-width: 100%;
+  height: auto;
+}
+
+.doc figure {
+  break-inside: avoid;
+  margin: 1.6em 0;
+}
+
+/* Mermaid emits its own <svg> sizing; constrain it to the text column. */
+.doc figure.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---------- Math (KaTeX) ---------- */
+
+/*
+ * KaTeX ships its own complete stylesheet, inlined ahead of this one — these rules only
+ * settle it into the page. Its 1.21em default is left alone: it is what makes math read at
+ * the same optical weight as the serif body text.
+ */
+
+/* A display formula split across two sheets is unreadable. */
+.doc .katex-display {
+  break-inside: avoid;
+  margin: 1.2em 0;
+}
+
+/* The plugin wraps display math in a <p>; the margin above already spaces it. */
+.doc p.katex-block {
+  margin: 0;
+}
+
+/*
+ * No `overflow: auto` on display math. It is the web answer to a formula wider than its
+ * column, but on paper a scroll container just clips — better to let it run into the
+ * margin, where it is at least visible and fixable at the source.
+ */
+
+/* Failed formulas fall back to their source. Keep them monospace so they read as input. */
+.doc .katex-error {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* ---------- Task lists ---------- */
+
+.doc ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.35em;
+}
+
+.doc ul.contains-task-list li::marker {
+  content: none;
+}
+
+.doc ul.contains-task-list li input[type='checkbox'] {
+  margin-right: 0.5rem;
+  vertical-align: middle;
+  accent-color: var(--color-ink-strong);
+}
+
+/* ---------- Print refinements ---------- */
+
+@media print {
+  body {
+    font-size: 11pt;
+  }
+
+  .doc :is(h1, h2, h3, h4) {
+    break-after: avoid;
+  }
+
+  .doc :is(pre, blockquote, table, figure) {
+    break-inside: avoid;
+  }
+
+  /* Avoid a single orphaned line at a page boundary. */
+  .doc :is(p, li) {
+    orphans: 2;
+    widows: 2;
+  }
+}
+
+/* Manual page-break helper, kept for parity with the old setup. Tailwind's
+   `break-before-page` / `break-after-page` utilities work too. */
+.page {
+  break-after: page;
+}
