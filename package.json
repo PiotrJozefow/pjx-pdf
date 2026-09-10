@@ -18,8 +18,9 @@
     "pjx-pdf": "./pjx-pdf.mjs"
   },
   "scripts": {
-    "examples": "npm run example:markdown && npm run example:desktop && npm run example:tablet",
+    "examples": "npm run example:markdown && npm run example:two-column && npm run example:desktop && npm run example:tablet",
     "example:markdown": "node pjx-pdf.mjs examples/markdown.md",
+    "example:two-column": "node pjx-pdf.mjs examples/markdown.md --preset readable --margin 0.9cm -o examples/markdown-two-column.pdf",
     "example:desktop": "node pjx-pdf.mjs examples/page-desktop.html --view desktop",
     "example:tablet": "node pjx-pdf.mjs examples/page-tablet.html --view tablet",
     "install-global": "chmod +x pjx-pdf.mjs && npm install --global .",
