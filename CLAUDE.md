@@ -42,6 +42,9 @@ pjx-pdf <input.md> [more.md ...] [options]   # or: node pjx-pdf.mjs <input.md>
       --css <file>          Extra stylesheet appended after theme.css. Repeatable.
       --theme <name>        Mermaid theme: neutral | default | dark | forest
       --join <page|flow>    Page break between concatenated files, or continuous
+      --preset <name>       default | readable | compact (two-column print layouts)
+      --columns/--column-gap/--font-size/--margin/--figure-scale/--figures
+      --mermaid-max-height  Individual layout knobs; each overrides the preset
       --page-numbers        Force on   /  --no-page-numbers to force off
       --page-number-format  Template with {page} and {total}
       --html                Also write the intermediate .html next to the output
@@ -139,23 +142,68 @@ The whole flow lives in `pjx-pdf.mjs`, in this order:
    ```` ```math ```` fences with KaTeX, in Node. Nothing is deferred to the browser, so
    math cannot race `page.pdf()` the way Mermaid can — it belongs with `highlight.js` in
    step 2, not with Mermaid in step 5. Keep it that way.
-4. **Mermaid fences → placeholders** — the custom fence rule emits
+4. **Local images → data URIs** — `inlineImages()` rewrites every `src` that points at a
+   file on disk. Puppeteer gets the document through `setContent()`, so it runs on an
+   `about:blank` origin that cannot read `file://` subresources: a relative `images/…` src
+   resolves to nothing and Chrome draws its 14×16 broken-image icon, with **no error
+   anywhere**. That is why this exists — the failure mode is a clean-looking `✓` and a PDF
+   with no figures. Paths resolve against the directory of the Markdown that cited them, so
+   inputs from different folders each keep their own images; unreadable ones are named in a
+   warning above the summary line rather than swallowed.
+
+5. **Mermaid fences → placeholders** — the custom fence rule emits
    `<figure class="mermaid" data-mermaid="<base64>">` instead of a code block. The source
    is base64'd so diagram text can't break out of the attribute.
-5. **Tailwind compile** — `compileCss()` writes an entry stylesheet into a temp dir
+6. **Tailwind compile** — `compileCss()` writes an entry stylesheet into a temp dir
    **inside this project** and shells out to the Tailwind v4 CLI with `@source` pointed at
    the generated HTML. The temp dir must live here so `@import "tailwindcss"` and
    `@plugin "@tailwindcss/typography"` resolve against our `node_modules`; a `/tmp` dir
    fails with `Can't resolve 'tailwindcss'`. The CSS is then inlined into the HTML.
-6. **Puppeteer** — `setContent`, inject local `mermaid.min.js`, then `mermaid.render()`
+7. **Puppeteer** — `setContent`, inject local `mermaid.min.js`, then `mermaid.render()`
    each placeholder **inside an awaited loop**, wait on `document.fonts.ready`, and only
    then call `page.pdf()`.
 
 ### The part that matters
 
-Step 6 is the whole reason this tool exists. Mermaid rendering is asynchronous; if the PDF
+Step 7 is the whole reason this tool exists. Mermaid rendering is asynchronous; if the PDF
 is snapshotted before it resolves, diagrams come out blank or the process hangs. Any change
 to `renderPdf()` must keep the render loop awaited before `page.pdf()`.
+
+## Layout presets and columns
+
+`--preset` resolves through `resolveLayout()` into a plain object — columns, gap, font
+size, margin, figure scale, figure display, Mermaid cap — which `layoutCss()` turns into a
+stylesheet. Measured on a 13-file, 188-figure lecture bundle: 144 pages single-column,
+55 at `readable`, 27 at `compact`. Both are two-column; the tightened
+vertical rhythm travels with `columns > 1`, not with the preset name, so `--columns 2`
+alone still gets a usable layout.
+
+CLI flags beat front-matter, which beats the preset. The preset values are **measured, not
+derived** — `figureScale` is 0.375 at 6.05 pt and 0.685 at 9.9 pt, which is not
+proportional, because those are the two points that were actually tuned on paper. Page
+count scales roughly with the square of the body size, so aim with
+`new = old × sqrt(target/actual)` and expect two iterations, scaling `figureScale` by the
+same ratio. Above ~10 pt the relationship inverts: figures stop fitting a column, each one
+forces a column break, and the count *rises*. If a size increase makes the PDF longer,
+that is why.
+
+`layoutCss()` is injected inside the Tailwind bundle **between `theme.css` and `--css`**
+(see `compileCss()`). That ordering is the whole reason these rules need no `!important`:
+they outrank the house style by source order, and a user stylesheet still outranks them.
+Moving the injection into the `pageRules` block would silently invert the second half.
+
+### Columns and page geometry do not mix by default
+
+`groupSections()` wraps runs of ordinary content in `<div class="pjx-pdf-cols">` and leaves
+`--horizontal` sections as siblings **outside** any wrapper. This is load-bearing: Chrome
+cannot switch page size inside a fragmented multi-column container, so putting
+`column-count` on `.doc` itself makes the named `@page` silently do nothing — verified,
+`--horizontal` reported `1 landscape` while every MediaBox came out 595×842. Splitting the
+container restores it (595×842, 842×595, 595×842). The cover header and TOC sit outside the
+wrappers too, so they run the full page width instead of being trapped in one column.
+
+Each wrapper starts a fresh column set, so content after a landscape section begins new
+columns — free here, because a landscape section already forces a page break either side.
 
 ## Styling
 
@@ -289,7 +337,16 @@ disabled half.
 - Tailwind recompiles on every run (~1–2s). That is the cost of scanning the actual output
   for class names; do not cache it away without handling `--watch` invalidation.
 - The intermediate `.html` is written to disk before the Tailwind step because `@source`
-  needs a real file, then deleted unless `--html` was passed.
+  needs a real file, then deleted unless `--html` was passed. It is built from the body with
+  **original relative image srcs**; only the copy handed to Puppeteer has them inlined.
+  Feeding megabytes of base64 to `@source` is nothing but candidate noise, the same reason
+  both `<style>` placeholders are emptied for that pass. `--html` writes the inlined copy,
+  which makes that file self-contained and portable.
+- `separateImgBlocks()` inserts a blank line after a single-line raw `<img …>` whose next
+  line is not blank: CommonMark would otherwise swallow the caption or a)/b) sub-label
+  beneath it into the same HTML block and print it as literal `*a)*`. It runs per rendered
+  block, **not** over the whole file — inserting lines earlier would shift the numbers
+  `--horizontal` ranges are counted in.
 - Mermaid failures are non-fatal by design: a broken diagram renders as red error text in
   the PDF and the run still succeeds. The summary line reports `rendered/total`.
 - Math failures follow the same policy (`throwOnError: false`) and are counted the same

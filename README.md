@@ -11,6 +11,10 @@ pjx-pdf report.md
 pjx-pdf INDEX.md 0*.md -o handbook.pdf
 # ✓ handbook.pdf  (1156 KB, 9 files, 7/7 diagrams)
 
+# A dense two-column handout for printing — 144 pages as one column, 27 as two
+pjx-pdf index.md lecture-*.md --preset compact --join flow -o notes.pdf
+# ✓ notes.pdf  (6322 KB, 13 files, 281/282 formulas, 188 figures, 2 columns)
+
 # HTML: a long page cut into screen-sized views, one per PDF page
 pjx-pdf landing.html --view laptop
 # ✓ landing.pdf  (11.1 MB, 18 pages, laptop 1440×1018)
@@ -59,6 +63,20 @@ pjx-pdf <page.html> [more.html ...] --view laptop [options]
                             on. (default: page)
       --landscape           Horizontal pages for the whole document
       --portrait            Vertical pages (the default)
+      --preset <name>       Markdown only. default | readable | compact.
+                            readable is two columns at 9.9pt, compact two at
+                            6.05pt. Sets columns, font size, margin and figure
+                            scale together; any of them given explicitly wins.
+      --columns <n>         Columns down the page, 1 to 4
+      --column-gap <len>    Space between them (default: 1.1em)
+      --font-size <len>     Body size, e.g. 9pt
+      --margin <box>        Page margin as 1, 2 or 4 CSS lengths
+      --figure-scale <n>    Zoom applied to images, scaling whatever size the
+                            source asked for (default: per preset)
+      --figures <block|inline>  block gives each image its own centred line;
+                            inline leaves them in the text flow (default: block)
+      --mermaid-max-height <len>  Diagram height cap (default: 45mm when there
+                            is more than one column, uncapped otherwise)
       --horizontal <ranges> Markdown only. Put just these line ranges on their own
                             landscape pages, e.g. docs/08-security.md:32-51.
                             Comma-separate for several; repeatable.
@@ -112,6 +130,54 @@ Document-level front-matter (`format`, `margin`, `toc`, `pageNumbers`, …) is m
 **first-file-wins**, and only the first file's `title`/`subtitle`/`author`/`date` produce
 the cover header. A `toc: true` on that first file builds a table of contents spanning
 every input.
+
+### Two-column layouts
+
+For anything you intend to read on paper, `--preset` typesets the document as a dense
+two-column handout. Two columns are what make small type work: they cut a 130-character
+measure down to roughly 65, and a centred figure fills a column instead of stranding white
+space beside it.
+
+```bash
+# Study notes: 13 files, 188 figures, 282 formulas, running straight on
+pjx-pdf index.md wyklad-*.md --preset compact --join flow -o notes.pdf
+# ✓ notes.pdf  (6322 KB, 13 files, 281/282 formulas, 188 figures, 2 columns)
+```
+
+| Preset | Body | Columns | Margin | Figure scale |
+| --- | --- | --- | --- | --- |
+| `default` | 11.5 pt | 1 | 1.6 × 1.4 cm | — |
+| `readable` | 9.9 pt | 2 | 0.9 / 0.9 / 1.1 / 0.9 cm | 0.685 |
+| `compact` | 6.05 pt | 2 | 0.9 / 0.9 / 1.1 / 0.9 cm | 0.375 |
+
+That bundle runs to 144 pages as a single column at the default size: `readable` brings it
+to 55 and `compact` to 27. `compact` sits at the floor of what a laser printer resolves — below about 6 pt the limit is toner scatter and paper fibre, not
+the PDF — so print a page or two as a test before committing a long job.
+
+Every knob is available on its own, and an explicit flag always beats the preset:
+
+```bash
+pjx-pdf notes.md --columns 2 --font-size 8pt          # no preset at all
+pjx-pdf notes.md --preset compact --font-size 7pt --figure-scale 0.44
+```
+
+**Tuning.** Page count scales roughly with the square of the body size, so aim with
+`new = old × sqrt(target / actual)` and expect two iterations. Scale `--figure-scale` by
+the same ratio to keep figures in proportion to the text. Above about 10 pt the
+relationship inverts: figures stop fitting a column, each one forces a column break, and
+the count *rises*. If a size increase makes the PDF longer, that is why.
+
+**Figures.** `--figures block` (the default) gives every image its own centred line, which
+is right for notes whose images are one-per-line and sized by the source. Use
+`--figures inline` for a document that sets its own `width=` and puts two figures on one
+line — otherwise the pair gets stacked and the author's layout is lost.
+
+**Diagrams.** In a narrow column a tall `flowchart TD` scales *up* to the column width and
+can swallow a whole sheet, so multi-column layouts cap Mermaid at 45 mm
+(`--mermaid-max-height`). The cap keeps a bad diagram on the page but cannot make it
+legible: prefer `LR` over `TD` and labels of two to four words. A linear `A → B → C` chain
+is a numbered list rendered at ten times the size, and a hierarchy of prose belongs in a
+table.
 
 ### Orientation
 
@@ -182,6 +248,34 @@ On by default, bottom-right, as `1 / 26`. Turn them off with `--no-page-numbers`
 `--page-number-format "Page {page} of {total}"`. A `footer` in front-matter replaces
 numbering entirely. CLI flags beat front-matter.
 
+## Images
+
+Local images just work, in Markdown or raw HTML, and are resolved against the directory of
+the file that referenced them — so combining inputs from different folders keeps each
+file's images pointing at its own:
+
+```markdown
+![Figure 1](images/bezier.svg)
+<img src="images/raster.png" style="max-width:100%; max-height:350px;">
+```
+
+They are embedded in the PDF as data URIs. This is not an optimisation: the document
+reaches the browser through `setContent()`, which runs on an `about:blank` origin that
+cannot read `file://` subresources, so a relative path would otherwise resolve to nothing
+and print as Chrome's broken-image icon — with no error, a clean `✓`, and a PDF quietly
+missing every figure. The summary line counts what was embedded, and anything unreadable is
+named:
+
+```
+! 2 image(s) could not be read; they will print broken:
+    images/nope.png
+    images/typo.svg
+✓ notes.pdf  (6322 KB, 13 files, 188 figures, 2 columns)
+```
+
+Remote URLs and existing `data:` URIs are left untouched. `--html` writes the inlined copy,
+so that file is self-contained and can be moved or emailed on its own.
+
 ## Front-matter
 
 ```yaml
@@ -194,9 +288,14 @@ toc: true
 format: A4
 landscape: false
 margin: { top: 18mm, right: 16mm, bottom: 18mm, left: 16mm }
+preset: readable          # default | readable | compact
+columns: 2                # with columnGap, fontSize, figureScale,
+figures: block            # figures (block|inline) and mermaidMaxHeight
 pageNumbers: true
 ---
 ```
+
+Every layout key mirrors its CLI flag, and the flag wins when both are present.
 
 `header` and `footer` accept raw HTML for the running page chrome. They render in a
 separate browser context, so they need inline `style` attributes — the page stylesheet
@@ -370,8 +469,10 @@ to Claude: it interviews the user about their machine and project, then writes a
 `✓ doc.pdf (1158 KB, 9 files, 7/7 diagrams, 63/64 formulas, 1 landscape)`. A `0/3 diagrams`
 means Mermaid failed and the PDF contains red error text; `63/64 formulas` means a formula
 failed to parse and prints in red where it stood. A page count far off what you expected
-means a range or selection did something you didn't intend. Never report success without
-reading it.
+means a range or selection did something you didn't intend. A `! N image(s) could not be
+read` warning above it means those figures will print as a broken-image icon — the paths
+are listed, and they resolve relative to the Markdown file that cited them. Never report
+success without reading it.
 
 **Verify before claiming.** Open the result and look at it — page count, orientation, and
 whether diagrams rendered. Especially check any page you deliberately changed.
@@ -388,6 +489,19 @@ whether diagrams rendered. Especially check any page you deliberately changed.
 - **One PDF or several,** when pointed at a folder. Combining is `pjx-pdf a.md b.md -o out.pdf`;
   separate invocations keep them apart. Argument order *is* document order, so check the
   glob sorts the way you want — `INDEX.md 0*.md` puts the index first, plain `*.md` won't.
+
+### Offer a two-column layout for anything that will be printed
+
+If the document is long and destined for paper — study notes, a handbook, a reference sheet
+— `--preset readable` typically cuts the page count by about half and `--preset compact` by
+about four fifths, at a measure that reads better than full-width small type. Offer it
+rather than waiting to be asked; the default single column is the right choice only for
+short documents and things read on screen.
+
+Two things to check afterwards, because neither shows up in the summary line: that figures
+still fit their column (scale `--figure-scale` down if a size increase made the PDF
+*longer*), and that Mermaid diagrams are still legible under the 45 mm cap — a `flowchart
+TD` with prose labels will be crushed, and the fix is `LR` and shorter labels, not more CSS.
 
 ### Offer to flip cramped content horizontal
 

@@ -45,6 +45,14 @@ function parseArgs(rawArgv) {
     css: [],
     theme: 'neutral', // grayscale — matches the monochrome print theme
     join: 'page',
+    preset: null, // compact | readable — bundles the layout knobs below
+    columns: null,
+    columnGap: null,
+    fontSize: null,
+    margin: null,
+    figureScale: null,
+    figures: null, // block | inline
+    mermaidMaxHeight: null,
     orientation: null, // null → per-preset (HTML) or front-matter (Markdown)
     logo: null, // image inlined into the footer, bottom-left
     logoHeight: null,
@@ -70,6 +78,14 @@ function parseArgs(rawArgv) {
     else if (arg === '--css') opts.css.push(argv[++i]);
     else if (arg === '--theme') opts.theme = argv[++i];
     else if (arg === '--join') opts.join = argv[++i];
+    else if (arg === '--preset') opts.preset = argv[++i];
+    else if (arg === '--columns') opts.columns = Number(argv[++i]);
+    else if (arg === '--column-gap') opts.columnGap = argv[++i];
+    else if (arg === '--font-size') opts.fontSize = argv[++i];
+    else if (arg === '--margin') opts.margin = argv[++i];
+    else if (arg === '--figure-scale') opts.figureScale = Number(argv[++i]);
+    else if (arg === '--figures') opts.figures = argv[++i];
+    else if (arg === '--mermaid-max-height') opts.mermaidMaxHeight = argv[++i];
     else if (arg === '--landscape') opts.orientation = 'landscape';
     else if (arg === '--portrait') opts.orientation = 'portrait';
     else if (arg === '--horizontal') opts.horizontal.push(argv[++i]);
@@ -116,6 +132,31 @@ Options
                               straight on. (default: page)
       --landscape             Horizontal pages for the whole document
       --portrait              Vertical pages (the default)
+
+Layout (Markdown only) — the preset sets the knobs below; any of them given
+explicitly wins over it
+      --preset <name>         default | readable | compact.
+                              readable is two columns at 9.9pt, compact two at
+                              6.05pt — both with tightened spacing and scaled
+                              figures. A lecture bundle that runs to 144 pages
+                              single-column comes to 55 and 27 respectively.
+      --columns <n>           Columns down the page, 1 to 4
+      --column-gap <len>      Space between them (default: 1.1em)
+      --font-size <len>       Body size, e.g. 9pt
+      --margin <box>          Page margin as 1, 2 or 4 CSS lengths, e.g.
+                                --margin 0.9cm
+                                --margin "0.9cm 0.9cm 1.1cm 0.9cm"
+      --figure-scale <n>      Zoom applied to images. Scales whatever size the
+                              source asked for, so figures keep their relative
+                              proportions. (default: per preset)
+      --figures <block|inline>
+                              block gives every image its own centred line;
+                              inline leaves images in the text flow, so a
+                              source that sizes its own figures and puts two on
+                              one line keeps them side by side. (default: block)
+      --mermaid-max-height <len>
+                              Cap on diagram height. (default: 45mm when there
+                              is more than one column, uncapped otherwise)
       --horizontal <ranges>   Markdown only. Render just these line ranges on their
                               own landscape pages, e.g.
                                 --horizontal=docs/08-security.md:32-51
@@ -181,6 +222,11 @@ Front-matter keys (all optional)
   format                          A4 | Letter | ...           (default: A4)
   landscape                       true | false
   margin                          { top, right, bottom, left }
+  preset                          default | readable | compact
+  columns, columnGap              Same as --columns / --column-gap
+  fontSize, figureScale           Same as --font-size / --figure-scale
+  figures                         block | inline
+  mermaidMaxHeight                Same as --mermaid-max-height
   header, footer                  HTML for the running header/footer
   logo, logoHeight                Same as --logo / --logo-height
   toc                             true → insert a table of contents
@@ -209,6 +255,15 @@ Examples
 
   The whole document horizontal
     pjx-pdf slides.md --landscape
+
+  Study notes as a dense two-column handout, files running straight on
+    pjx-pdf index.md lecture-*.md --preset compact --join flow -o notes.pdf
+
+  The same layout at a comfortable reading size
+    pjx-pdf index.md lecture-*.md --preset readable --join flow -o notes.pdf
+
+  A preset with one knob turned
+    pjx-pdf notes.md --preset compact --font-size 7pt --figure-scale 0.44
 
   Brand it, so you can tell projects apart at a glance
     pjx-pdf report.md --logo assets/logo.svg
@@ -282,6 +337,20 @@ Notes for AI agents
   - Badly placed cuts. --cut smart moves each cut to an element boundary;
     --scroll 0.5 instead guarantees everything appears whole on some page.
 
+  - A document to be read on paper rather than skimmed on screen. --preset
+    readable cuts the page count by about half and --preset compact by about
+    four fifths, because two columns cut a 130-character measure to about 65
+    and a centred figure fills a column instead of stranding white space.
+    Offer it for anything long enough to print. compact sits at the floor of
+    what a laser printer resolves, so print a page or two as a test before
+    committing a long job.
+
+  - Diagram shape, in two columns. A tall "flowchart TD" scales up to the
+    column and hits the 45mm cap until its labels are unreadable, while the
+    run still reports it rendered fine. Prefer LR and labels of 2-4 words;
+    a linear A -> B -> C chain is a numbered list rendered at 10x the size,
+    and a hierarchy of prose belongs in a table.
+
   - A project logo. If the repo has one (public/logo/, assets/, static/),
     --logo makes the PDF identifiable among documents from other projects.
     Worth offering for anything the user will keep rather than read once.
@@ -300,8 +369,11 @@ Notes for AI agents
     before it. Off-by-a-few silently clips the last paragraph of the section.
 
   Always read the summary line — it is the only success signal. "0/3 diagrams"
-  means Mermaid failed and the PDF contains red error text. Then open the result
-  and check the pages you deliberately changed before reporting success.
+  means Mermaid failed and the PDF contains red error text. A "! N image(s)
+  could not be read" warning above it means those figures will print as Chrome's
+  broken-image icon; the paths are listed, and they resolve relative to the
+  Markdown file that cited them. Then open the result and check the pages you
+  deliberately changed before reporting success.
 
 Run \`pjx-pdf --readme\` for the full documentation.
 `.trimStart();
@@ -408,13 +480,40 @@ function frontMatterOffset(source) {
 }
 
 /**
+ * Give a raw `<img …>` line its own paragraph.
+ *
+ * CommonMark treats a line opening with a block-level HTML tag as the start of an HTML
+ * block that runs until the next blank line, so a caption or an a)/b) sub-label written
+ * directly beneath an image is swallowed into it and prints as its literal source —
+ * `*a)*` rather than italics. A blank line closes the block.
+ *
+ * Only single-line tags qualify: inserting a break inside a tag spread over several lines
+ * would tear it in half. This runs per rendered block rather than over the whole file,
+ * because inserting lines earlier would shift the numbers `--horizontal` ranges refer to.
+ */
+function separateImgBlocks(text) {
+  const lines = text.split('\n');
+  const out = [];
+
+  for (const [i, line] of lines.entries()) {
+    out.push(line);
+    const trimmed = line.trim();
+    if (trimmed.startsWith('<img') && trimmed.endsWith('>') && lines[i + 1]?.trim()) out.push('');
+  }
+
+  return out.join('\n');
+}
+
+/**
  * Split one document into alternating normal / landscape blocks.
  *
  * Each block is rendered independently, so a range must not cut through a single Markdown
  * construct — pick section boundaries, which is what the line numbers are for.
  */
 function splitBlocks(doc, ranges, md) {
-  if (!ranges?.length) return [{ html: md.render(doc.content), landscape: false }];
+  if (!ranges?.length) {
+    return [{ html: md.render(separateImgBlocks(doc.content)), landscape: false }];
+  }
 
   const offset = frontMatterOffset(doc.source);
   const lines = doc.content.split('\n');
@@ -432,19 +531,190 @@ function splitBlocks(doc, ranges, md) {
   for (let i = 1; i <= lines.length; i++) {
     if (i < lines.length && isLandscape[i] === isLandscape[runStart]) continue;
     const text = lines.slice(runStart, i).join('\n');
-    if (text.trim()) blocks.push({ html: md.render(text), landscape: isLandscape[runStart] });
+    if (text.trim()) {
+      blocks.push({
+        html: md.render(separateImgBlocks(text)),
+        landscape: isLandscape[runStart],
+      });
+    }
     runStart = i;
   }
 
   return blocks;
 }
 
+/* --------------------------------------------------------------- layout -- */
+
+/**
+ * Layout presets. Both two-column presets came out of typesetting a 12-lecture bundle with
+ * 188 figures: 144 pages single-column at the default size, 55 at `readable`, 27 at
+ * `compact`. Two columns are what make small type work — they cut a 130-character measure
+ * to about 65, and a centred figure fills a column instead of stranding white space.
+ *
+ * `figureScale` is the `zoom` applied to images. The values are measured rather than
+ * derived (0.375/6.05 ≠ 0.685/9.9): scaling the source's own inline sizes keeps figures in
+ * proportion to the text, and these are the two points that were actually tuned on paper.
+ */
+const LAYOUT_PRESETS = {
+  default: {
+    columns: 1,
+    fontSize: null, // theme.css decides
+    margin: { top: '1.6cm', right: '1.4cm', bottom: '1.6cm', left: '1.4cm' },
+    figureScale: null,
+  },
+  readable: {
+    columns: 2,
+    fontSize: '9.9pt',
+    margin: { top: '0.9cm', right: '0.9cm', bottom: '1.1cm', left: '0.9cm' },
+    figureScale: 0.685,
+  },
+  compact: {
+    columns: 2,
+    fontSize: '6.05pt',
+    margin: { top: '0.9cm', right: '0.9cm', bottom: '1.1cm', left: '0.9cm' },
+    figureScale: 0.375,
+  },
+};
+
+/** A CSS margin shorthand — 1, 2 or 4 lengths — as the {top,right,bottom,left} box. */
+function parseMargin(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value; // front-matter already writes it long-hand
+
+  const parts = String(value).trim().split(/\s+/);
+  const [top, right = top, bottom = top, left = right] = parts;
+  if (parts.length > 4 || parts.some((p) => toMm(p) === null)) {
+    throw new UsageError(
+      `--margin takes 1, 2 or 4 CSS lengths, got "${value}" (e.g. "0.9cm" or "0.9cm 0.9cm 1.1cm 0.9cm")`,
+    );
+  }
+  return { top, right, bottom, left };
+}
+
+/** CLI flags beat front-matter, which beats the preset, which beats the built-in default. */
+function resolveLayout(opts, data) {
+  const name = opts.preset ?? data.preset ?? 'default';
+  const preset = LAYOUT_PRESETS[name];
+  if (!preset) {
+    throw new UsageError(
+      `--preset must be one of ${Object.keys(LAYOUT_PRESETS).join(', ')}, got "${name}"`,
+    );
+  }
+
+  const columns = opts.columns ?? data.columns ?? preset.columns;
+  if (!Number.isInteger(columns) || columns < 1 || columns > 4) {
+    throw new UsageError(`--columns must be a whole number from 1 to 4, got "${columns}"`);
+  }
+
+  const figures = opts.figures ?? data.figures ?? 'block';
+  if (!['block', 'inline'].includes(figures)) {
+    throw new UsageError(`--figures must be "block" or "inline", got "${figures}"`);
+  }
+
+  return {
+    columns,
+    columnGap: opts.columnGap ?? data.columnGap ?? '1.1em',
+    fontSize: opts.fontSize ?? data.fontSize ?? preset.fontSize,
+    margin: parseMargin(opts.margin) ?? parseMargin(data.margin) ?? preset.margin,
+    figureScale: opts.figureScale ?? data.figureScale ?? preset.figureScale,
+    figures,
+    // A tall `flowchart TD` has no height of its own — it scales *up* to the container
+    // width and can swallow a whole sheet, while the run still reports it rendered fine.
+    // Harmless in one wide column; ruinous in a narrow one, so cap it there by default.
+    mermaidMaxHeight:
+      opts.mermaidMaxHeight ?? data.mermaidMaxHeight ?? (columns > 1 ? '45mm' : null),
+    // Two columns only pay off at a size where a 65-character measure still fits, so the
+    // preset's tightened vertical rhythm travels with the column count, not with the name.
+    dense: columns > 1,
+  };
+}
+
+/**
+ * The layout as CSS. Emitted inside the Tailwind bundle, immediately after theme.css and
+ * before any `--css`, so these rules override the house style without `!important` and a
+ * user stylesheet still overrides them.
+ */
+function layoutCss(layout) {
+  const rules = [];
+
+  if (layout.fontSize) {
+    // theme.css sets a smaller size again under `@media print`, which is the context
+    // page.pdf() renders in — so both have to be answered.
+    rules.push(`body { font-size: ${layout.fontSize}; line-height: 1.32; }`);
+    rules.push(`@media print { body { font-size: ${layout.fontSize}; line-height: 1.32; } }`);
+  }
+
+  rules.push(`.pjx-pdf-cols {
+  column-count: ${layout.columns};
+  column-gap: ${layout.columnGap};
+  /* Fill each column to the page before starting the next. Balancing instead leaves every
+     page short. */
+  column-fill: auto;
+}`);
+
+  if (layout.dense) {
+    rules.push(`.doc :is(h1, h2, h3, h4, h5, h6) { margin: 0.8em 0 0.3em; line-height: 1.15; }
+/* No column-span:all on headings: it forces a column break at every chapter, which on a
+   13-chapter document leaves half of each preceding page blank. A heading earns its
+   prominence from size and a rule instead, and stays in the column flow. */
+.doc h1 {
+  font-size: 1.5em;
+  margin: 1.1em 0 0.35em;
+  padding: 0.3em 0 0;
+  border-top: 1.5pt solid var(--color-ink-strong);
+  border-bottom: none;
+}
+.doc h1:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+.doc h2 { font-size: 1.22em; }
+.doc h3 { font-size: 1.08em; }
+.doc p { margin: 0 0 0.4em; text-align: justify; hyphens: auto; }
+.doc :is(ul, ol) { margin: 0 0 0.45em; padding-left: 1.2em; }
+.doc li { margin: 0.05em 0; }
+.doc hr { margin: 0.7em 0; }
+.doc figure { margin: 0.4em 0; }
+.doc .katex-display { margin: 0.4em 0; }
+.doc .katex { font-size: 0.98em; }
+.doc table { margin: 0.5em 0; font-size: 0.9em; }
+.doc :is(th, td) { padding: 0.15em 0.35em; }
+/* A paragraph that is nothing but italics is a figure caption. */
+.doc p > em:only-child { font-size: 0.85em; }
+.doc p:has(> em:only-child) { margin: 0 0 0.5em; text-align: center; }`);
+  }
+
+  if (layout.figureScale) {
+    // `zoom` scales the source's own inline width/max-height, so figures keep their
+    // relative sizes instead of all being clamped to one cap.
+    rules.push(`.doc img { zoom: ${layout.figureScale}; }`);
+  }
+
+  rules.push(
+    layout.figures === 'inline'
+      ? // For documents that size their own figures and put pairs on one line: forcing
+        // `display: block` would stack the pair and lose the author's layout.
+        `.doc img { display: inline-block; vertical-align: middle; margin: 0.15em 0.2em; max-width: 100%; }
+.doc p:has(> img) { text-align: center; margin: 0.3em 0; }`
+      : `.doc img { display: block; margin: 0.15em auto; max-width: 100%; }`,
+  );
+
+  if (layout.mermaidMaxHeight) {
+    rules.push(`.doc figure.mermaid { break-inside: avoid; text-align: center; margin: 0.5em 0; }
+.doc figure.mermaid svg {
+  max-width: 100%;
+  max-height: ${layout.mermaidMaxHeight};
+  width: auto;
+  height: auto;
+}`);
+  }
+
+  return rules.join('\n\n');
+}
+
 /**
  * Page geometry as CSS, so one document can mix orientations — a single `page.pdf()` call
  * has one page size, but Chrome honours named `@page` rules under `preferCSSPageSize`.
  */
-function pageCss(data, orientation) {
-  const margin = data.margin ?? { top: '1.6cm', right: '1.4cm', bottom: '1.6cm', left: '1.4cm' };
+function pageCss(layout, data, orientation) {
+  const margin = layout.margin;
   const box = `${margin.top} ${margin.right} ${margin.bottom} ${margin.left}`;
   const format = data.format ?? 'A4';
   const base = orientation === 'landscape' ? 'landscape' : 'portrait';
@@ -457,6 +727,39 @@ function pageCss(data, orientation) {
   break-before: page;
   break-after: page;
 }`;
+}
+
+/**
+ * Assemble rendered blocks into the DOM the page geometry needs: runs of ordinary content
+ * inside a `.pjx-pdf-cols` wrapper, landscape sections as siblings *outside* it.
+ *
+ * The wrapper is what `--columns` styles, and it has to close around every landscape
+ * section. Chrome cannot switch page size inside a fragmented multi-column container, so
+ * with `column-count` on one `.doc` wrapping the whole document the named `@page` is
+ * silently dropped: `--horizontal` reports "1 landscape" and every page comes out portrait.
+ * Splitting the container restores the switch. The cost is that each wrapper starts a fresh
+ * column set, which is free here — a landscape section forces a page break either side.
+ */
+function groupSections(blocks, key) {
+  const out = [];
+  let run = [];
+
+  const flush = () => {
+    if (run.length) out.push(`<div class="pjx-pdf-cols">\n${run.join('\n')}\n</div>`);
+    run = [];
+  };
+
+  for (const block of blocks) {
+    if (block.landscape) {
+      flush();
+      out.push(block[key]);
+    } else {
+      run.push(block[key]);
+    }
+  }
+  flush();
+
+  return out.join('\n');
 }
 
 function buildToc(html) {
@@ -499,7 +802,7 @@ function coverHeader(data) {
  * Compile Tailwind against the generated HTML. Runs the v4 CLI in a temp dir so
  * `@source` picks up exactly the classes this document uses.
  */
-async function compileCss(htmlPath, extraCssFiles) {
+async function compileCss(htmlPath, extraCssFiles, layoutRules) {
   // The temp dir lives inside the tool so `@import "tailwindcss"` and `@plugin`
   // resolve against our own node_modules.
   const tmp = await fs.mkdtemp(path.join(here, '.build-'));
@@ -518,6 +821,8 @@ async function compileCss(htmlPath, extraCssFiles) {
       `@plugin "@tailwindcss/typography";`,
       `@source "${htmlPath}";`,
       base,
+      // Between the two: the layout overrides the house style, `--css` overrides the layout.
+      layoutRules,
       extra,
     ].join('\n'),
   );
@@ -574,6 +879,76 @@ async function katexCss() {
 }
 
 /* ----------------------------------------------------------------- html -- */
+
+const IMAGE_MIME = {
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+};
+
+const SRC_ATTR = /\bsrc\s*=\s*(["'])([^"']*)\1/g;
+
+/**
+ * Rewrite local image references as data URIs.
+ *
+ * `renderPdf()` hands the document to Puppeteer through `setContent()`, so it runs on an
+ * `about:blank` origin that cannot read `file://` subresources. A relative `images/…` src
+ * therefore resolves to nothing and Chrome draws its 14×16 broken-image icon — with no
+ * error reported anywhere, so the run looks like a clean success and the PDF simply has no
+ * figures. Inlining sidesteps the origin entirely, exactly as `katexCss()` and `loadLogo()`
+ * already do for their own assets.
+ *
+ * Paths resolve against the directory of the Markdown file that referenced them, so inputs
+ * from different folders each keep their own images. Absolute URLs and existing data URIs
+ * are left alone; anything that cannot be read is left untouched and collected in
+ * `assets.missing`, because a figure that silently vanishes is the bug this exists to fix.
+ */
+async function inlineImages(html, baseDir, assets) {
+  const local = new Map(); // this block's ref → data URI, or null to leave it alone
+
+  for (const [, , ref] of html.matchAll(SRC_ATTR)) {
+    if (local.has(ref)) continue;
+    local.set(ref, null);
+    if (!ref || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(ref)) continue; // http:, data:, //host
+
+    let rel = ref;
+    try {
+      rel = decodeURI(ref);
+    } catch {
+      /* a stray % is not an escape — take the path as written */
+    }
+    const file = path.resolve(baseDir, rel);
+
+    // Cached across the whole build: a lecture bundle cites the same figure many times.
+    if (!assets.cache.has(file)) {
+      const mime = IMAGE_MIME[path.extname(file).toLowerCase()];
+      let data = null;
+      if (mime) {
+        try {
+          data = await fs.readFile(file);
+        } catch {
+          /* reported through assets.missing */
+        }
+      }
+      assets.cache.set(file, data ? `data:${mime};base64,${data.toString('base64')}` : null);
+    }
+
+    const uri = assets.cache.get(file);
+    if (uri) local.set(ref, uri);
+    else assets.missing.add(ref);
+  }
+
+  return html.replace(SRC_ATTR, (whole, quote, ref) => {
+    const uri = local.get(ref);
+    if (!uri) return whole;
+    assets.inlined++;
+    return `src=${quote}${uri}${quote}`;
+  });
+}
 
 function wrapDocument({ body, title, pageRules }) {
   return `<!doctype html>
@@ -880,16 +1255,6 @@ async function buildHtmlDeck(opts) {
 const CHROME_STYLE =
   'font-size:8px;color:#777;width:100%;padding:0 1.4cm;font-family:Charter,Georgia,serif;';
 
-const LOGO_MIME = {
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.avif': 'image/avif',
-};
-
 /** CSS length → millimetres, for comparing the logo against the margin it has to fit in. */
 function toMm(value) {
   const match = /^([\d.]+)\s*(mm|cm|in|px|pt)?$/.exec(String(value).trim());
@@ -906,10 +1271,10 @@ function toMm(value) {
  */
 async function loadLogo(file, height, margin) {
   const ext = path.extname(file).toLowerCase();
-  const mime = LOGO_MIME[ext];
+  const mime = IMAGE_MIME[ext];
   if (!mime) {
     throw new UsageError(
-      `--logo must be one of ${Object.keys(LOGO_MIME).join(', ')}, got "${ext || file}"`,
+      `--logo must be one of ${Object.keys(IMAGE_MIME).join(', ')}, got "${ext || file}"`,
     );
   }
 
@@ -1056,6 +1421,7 @@ async function build(opts) {
   // Document-level config is merged first-file-wins; the cover comes from the first only.
   const data = docs.reduce((merged, doc) => ({ ...doc.data, ...merged }), {});
 
+  const layout = resolveLayout(opts, data);
   const horizontal = parseHorizontal(opts.horizontal);
   for (const file of horizontal.keys()) {
     if (!inputPaths.includes(file)) {
@@ -1064,42 +1430,59 @@ async function build(opts) {
   }
 
   const md = createRenderer();
-  const sections = [];
+  const blocks = [];
+  const assets = { cache: new Map(), missing: new Set(), inlined: 0 };
   let landscapeBlocks = 0;
 
-  docs.forEach((doc, i) => {
-    if (i > 0 && opts.join !== 'flow') sections.push('<div class="break-before-page"></div>');
+  for (const [i, doc] of docs.entries()) {
+    if (i > 0 && opts.join !== 'flow') {
+      const separator = '<div class="break-before-page"></div>';
+      blocks.push({ html: separator, inlined: separator, landscape: false });
+    }
+    // Images resolve against the directory holding the Markdown that cited them.
+    const baseDir = path.dirname(doc.file);
     for (const block of splitBlocks(doc, horizontal.get(doc.file), md)) {
       if (block.landscape) landscapeBlocks++;
-      sections.push(
-        block.landscape ? `<section class="pjx-pdf-landscape">${block.html}</section>` : block.html,
-      );
+      const html = block.landscape
+        ? `<section class="pjx-pdf-landscape">${block.html}</section>`
+        : block.html;
+      blocks.push({
+        html,
+        inlined: await inlineImages(html, baseDir, assets),
+        landscape: block.landscape,
+      });
     }
-  });
+  }
 
-  let body = sections.join('\n');
+  const sections = groupSections(blocks, 'html');
 
-  if (data.toc) body = buildToc(body) + body;
-  body = coverHeader(data) + body;
+  // Cover and TOC sit directly under `.doc`, outside every column wrapper, so they run the
+  // full width of the page. Both bodies differ only in image srcs, so they are built once.
+  const prefix = coverHeader(data) + (data.toc ? buildToc(sections) : '');
+  const body = prefix + sections;
+  const inlinedBody = prefix + groupSections(blocks, 'inlined');
 
   const title = data.title ?? path.basename(inputPaths[0], path.extname(inputPaths[0]));
   const outPath = resolveOutPath(opts, inputPaths);
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   const htmlPath = outPath.replace(/\.pdf$/i, '.html');
 
-  // Tailwind needs the markup on disk to scan for class names. Both stylesheets stay empty
-  // for that pass — a few hundred KB of inlined font data is nothing but candidate noise.
+  // Tailwind needs the markup on disk to scan for class names. The scanned copy keeps the
+  // original relative image srcs and leaves both stylesheets empty — inlined font and image
+  // data is nothing but candidate noise to `@source`, and there can be megabytes of it.
   const orientation = opts.orientation ?? (data.landscape ? 'landscape' : 'portrait');
-  const shell = wrapDocument({ body, title, pageRules: pageCss(data, orientation) });
+  const pageRules = pageCss(layout, data, orientation);
   await fs.writeFile(
     htmlPath,
-    shell.replace('__PJX_PDF_MATH_CSS__', '').replace('__PJX_PDF_CSS__', ''),
+    wrapDocument({ body, title, pageRules })
+      .replace('__PJX_PDF_MATH_CSS__', '')
+      .replace('__PJX_PDF_CSS__', ''),
   );
 
-  const css = await compileCss(htmlPath, opts.css);
+  const css = await compileCss(htmlPath, opts.css, layoutCss(layout));
   // KaTeX's stylesheet is only paid for by documents that use it.
   const math = hasMath(body) ? await katexCss() : '';
-  const html = shell
+  const html = wrapDocument({ body: inlinedBody, title, pageRules })
     .replace('__PJX_PDF_MATH_CSS__', () => math)
     .replace('__PJX_PDF_CSS__', () => css);
 
@@ -1108,11 +1491,9 @@ async function build(opts) {
 
   const logoFile = opts.logo ?? data.logo;
   const logo = logoFile
-    ? await loadLogo(
-        logoFile,
-        opts.logoHeight ?? data.logoHeight ?? '8mm',
-        data.margin ?? { bottom: '1.6cm' },
-      )
+    ? // The resolved margin, not the front-matter one: a preset tightens the bottom margin
+      // the footer is drawn inside, so it decides how tall a logo can be.
+      await loadLogo(logoFile, opts.logoHeight ?? data.logoHeight ?? '8mm', layout.margin)
     : null;
 
   const chrome = resolveChrome(data, opts, logo);
@@ -1128,7 +1509,16 @@ async function build(opts) {
   if (docs.length > 1) parts.push(`${docs.length} files`);
   if (stats.total) parts.push(`${stats.rendered}/${stats.total} diagrams`);
   if (formulas || badFormulas) parts.push(`${formulas}/${formulas + badFormulas} formulas`);
+  if (assets.inlined) parts.push(`${assets.inlined} figures`);
   if (landscapeBlocks) parts.push(`${landscapeBlocks} landscape`);
+  if (layout.columns > 1) parts.push(`${layout.columns} columns`);
+
+  // Say so before the summary line: an unreadable image still prints, as Chrome's
+  // broken-image icon, and that is easy to miss in a hundred-page PDF.
+  if (assets.missing.size) {
+    console.warn(`! ${assets.missing.size} image(s) could not be read; they will print broken:`);
+    for (const ref of assets.missing) console.warn(`    ${ref}`);
+  }
 
   // Prefer the relative path, unless climbing out of cwd makes it the longer one.
   const relative = path.relative(process.cwd(), outPath);
